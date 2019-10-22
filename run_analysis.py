@@ -28,7 +28,7 @@ class CameraCut:
     This class declares a naive approach to determine camera cuts in the
     footage. It creates histograms of the red and blue channels and if there is
     a large difference in the histograms over subsequent frames it is declared
-    a camera cut
+    a camera cut. This fails when there are transition graphics.
     """
 
     def __init__(self):
@@ -36,17 +36,31 @@ class CameraCut:
         self.blue_hist = None
 
     def new_frame(self, frame):
+        """
+        Determine if a new frame is a camera cut.
+
+        Parameters
+        ---------
+        frame: Image
+            The new frame
+
+        Returns
+        -------
+        cut: boolean
+            Whether the new frame is a cut from the previous frame
+        """
         cut = True
-        this_red_hist = np.histogram(frame[:,:,2])[0]
-        this_blue_hist = np.histogram(frame[:,:,0])[0]
+        new_red_hist = np.histogram(frame[:, :, 2])[0]
+        new_blue_hist = np.histogram(frame[:, :, 0])[0]
         if self.red_hist is not None:
-            red_diff = np.sum(np.abs(self.red_hist - this_red_hist))
-            blue_diff = np.sum(np.abs(self.blue_hist - this_blue_hist))
+            red_diff = np.sum(np.abs(self.red_hist - new_red_hist))
+            blue_diff = np.sum(np.abs(self.blue_hist - new_blue_hist))
             if red_diff + blue_diff < 1000000:
                 cut = False
-        self.red_hist = this_red_hist
-        self.blue_hist = this_blue_hist
+        self.red_hist = new_red_hist
+        self.blue_hist = new_blue_hist
         return cut
+
 
 def run_analysis(filename):
     """
@@ -68,8 +82,9 @@ def run_analysis(filename):
     while(cap.isOpened()):
         print(counter)
         ret, frame = cap.read()
-        cut = camera_cut.new_frame(frame)
-        if cut:
+        if camera_cut.new_frame(frame):
+            # If this frame is a camera cut, lose the existing VideoWriter and
+            # open a new one
             if cut_counter > 1:
                 out.release()
             fourcc = cv2.VideoWriter_fourcc('F', 'M', 'P', '4')
@@ -80,6 +95,7 @@ def run_analysis(filename):
         draw = frame.copy()
 
         if counter % 5 == 0:
+            # Every 5 frames use retinanet to find players in the frame
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
             frame = preprocess_image(frame)
             frame, scale = resize_image(frame)
@@ -87,6 +103,7 @@ def run_analysis(filename):
             boxes, scores, labels = model.predict_on_batch(np.expand_dims(frame, axis=0))
             boxes /= scale
 
+        # Plot the most recent detections on the current frame
         for box, score, label in zip(boxes[0], scores[0], labels[0]):
             if score < 0.5:
                 break
@@ -99,16 +116,12 @@ def run_analysis(filename):
             caption = "{:.3f}".format(score)
             draw_caption(draw, b, caption)
 
-        # cv2.imshow('frame', draw)
-        # if cv2.waitKey(1) & 0xFF == ord('q'):
-        #     break
+        # Write the current frame with annotations to the VideoWriter
         out.write(draw)
         counter += 1
     cap.release()
     out.release()
     cv2.destroyAllWindows()
-
-
 
 
 if __name__ == "__main__":
