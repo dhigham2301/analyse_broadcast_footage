@@ -71,6 +71,8 @@ def run_analysis(filename):
     filename: String
         The wall placement strategies the user has provided
     """
+    parts = filename.split(".")
+
     model = models.load_model('resnet50_coco_best_v2.1.0.h5', backbone_name='resnet50')
 
     cap = cv2.VideoCapture(filename)
@@ -88,7 +90,7 @@ def run_analysis(filename):
             if cut_counter > 1:
                 out.release()
             fourcc = cv2.VideoWriter_fourcc('F', 'M', 'P', '4')
-            out = cv2.VideoWriter('{}.mp4'.format(cut_counter), fourcc, 50.0,
+            out = cv2.VideoWriter('{}_{}.mp4'.format(parts[0], cut_counter), fourcc, 50.0,
                       (int(cap.get(3)), int(cap.get(4))))
             cut_counter += 1
             counter = 0
