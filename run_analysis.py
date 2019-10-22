@@ -23,6 +23,31 @@ def build_parser():
     return parser
 
 
+class CameraCut:
+    """
+    This class declares a naive approach to determine camera cuts in the
+    footage. It creates histograms of the red and blue channels and if there is
+    a large difference in the histograms over subsequent frames it is declared
+    a camera cut
+    """
+
+    def __init__(self):
+        self.red_hist = None
+        self.blue_hist = None
+
+    def new_frame(self, frame):
+        cut = True
+        this_red_hist = np.histogram(frame[:,:,2])[0]
+        this_blue_hist = np.histogram(frame[:,:,0])[0]
+        if self.red_hist is not None:
+            red_diff = np.sum(np.abs(self.red_hist - this_red_hist))
+            blue_diff = np.sum(np.abs(self.blue_hist - this_blue_hist))
+            if red_diff + blue_diff < 1000000:
+                cut = False
+        self.red_hist = this_red_hist
+        self.blue_hist = this_blue_hist
+        return cut
+
 def run_analysis(filename):
     """
     Run analysis on the provided file
@@ -36,12 +61,25 @@ def run_analysis(filename):
 
     cap = cv2.VideoCapture(filename)
 
+    camera_cut = CameraCut()
+
+    cut_counter = 1
     counter = 0
     while(cap.isOpened()):
+        print(counter)
         ret, frame = cap.read()
-        if counter % 5 == 0:
-            draw = frame.copy()
+        cut = camera_cut.new_frame(frame)
+        if cut:
+            if cut_counter > 1:
+                out.release()
+            fourcc = cv2.VideoWriter_fourcc('F', 'M', 'P', '4')
+            out = cv2.VideoWriter('{}.mp4'.format(cut_counter), fourcc, 50.0,
+                      (int(cap.get(3)), int(cap.get(4))))
+            cut_counter += 1
+            counter = 0
+        draw = frame.copy()
 
+        if counter % 5 == 0:
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
             frame = preprocess_image(frame)
             frame, scale = resize_image(frame)
@@ -49,28 +87,27 @@ def run_analysis(filename):
             boxes, scores, labels = model.predict_on_batch(np.expand_dims(frame, axis=0))
             boxes /= scale
 
-            #gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-                # scores are sorted so we can break
-            for box, score, label in zip(boxes[0], scores[0], labels[0]):
-                # scores are sorted so we can break
-                if score < 0.5:
-                    break
-
-                color = label_color(label)
-
-                b = box.astype(int)
-                draw_box(draw, b, color=color)
-
-                caption = "{:.3f}".format(score)
-                draw_caption(draw, b, caption)
-
-            cv2.imshow('frame', draw)
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+        for box, score, label in zip(boxes[0], scores[0], labels[0]):
+            if score < 0.5:
                 break
+
+            color = label_color(label)
+
+            b = box.astype(int)
+            draw_box(draw, b, color=color)
+
+            caption = "{:.3f}".format(score)
+            draw_caption(draw, b, caption)
+
+        # cv2.imshow('frame', draw)
+        # if cv2.waitKey(1) & 0xFF == ord('q'):
+        #     break
+        out.write(draw)
         counter += 1
     cap.release()
+    out.release()
     cv2.destroyAllWindows()
+
 
 
 
